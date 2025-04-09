@@ -1,13 +1,12 @@
 # --------Imports--------
+import deep_translator
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-from translate import Translator
-import threading
+from pprint import pprint
 import json
+import time
 import re
 import os
-from pprint import pprint
-import time
 
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -123,17 +122,17 @@ def scrape_post_thread(html: str, note_items: dict):
 
     # Extracting title
     try:
-        title = soup.find('div', {'id': 'detail-title'}).text
+        title = soup.find('div', {'id': 'detail-title'}).text.strip()
     except:
-        title = ''
-        print("Couldn't find title")
+        title = 'Not found'
 
     # Extracting description
     try:
-        desc = soup.find('span', {'class': 'note-text'}).find('span').text
+        desc = soup.find('div', {'id': 'detail-desc'})
+        desc = desc.find('span', {'class': 'note-text'})
+        desc = desc.find('span').text.strip()
     except:
-        desc = ''
-        print("Couldn't find description")
+        desc = 'Not found'
 
     # Extracting image
     try:
@@ -144,37 +143,23 @@ def scrape_post_thread(html: str, note_items: dict):
         )
         img = img.group(0)
     except:
-        img = ''
+        img = 'Not found'
 
-    with lock:
-        note_items[url]['title']['zh'] = title
-        note_items[url]['title']['en'] = translate(title)
-        note_items[url]['description']['zh'] = desc
-        note_items[url]['description']['en'] = translate(desc)
-        note_items[url]['image'] = img
+    note_items['title']['zh'] = title
+    note_items['title']['en'] = translate(title)
+    note_items['description']['zh'] = desc
+    note_items['description']['en'] = translate(desc)
+    note_items['image'] = img
 
 
 def translate(string: str) -> str:
-    """
-    Translates the given string from Chinese to English using the
-    `googletrans` library.
-
-    Args:
-        string (str): The string to translate.
-
-    Returns:
-        str: The translated string.
-    """
     # Translating Chinese to English
-    translator = Translator(from_lang='zh', to_lang='en')
-    return translator.translate(string)
+    return deep_translator.GoogleTranslator(source='auto', target='en').translate(string)
 
 
 # --------Data--------
 global driver
 driver = get_driver(headless=True)
-results = {}
-lock = threading.Lock()
 
 if __name__ == "__main__":
     note_items = json.load(open('res/output.json', 'r'))
@@ -194,26 +179,23 @@ if __name__ == "__main__":
             print(f"Scraping {name}")
             scrape_post(url, name)
 
-    # Scraping posts from the saved pages (threaded)
+    # Scraping
     if True:
-        threads = []
+        counter = 1
         for url in note_items:
+            print(f"Scraping {counter}/{len(note_items)}", end='\r')
+
             name = url.split('/')[4].split('?')[0]
-            if not os.path.exists(f'./res/pages/{name}.html'):
+            page = f'./res/pages/{name}.html'
+            if not os.path.exists(page):
                 scrape_post(url, name)
                 continue
-            print(f"Scraping {note_items[url]['title']['en']}")
-            t = threading.Thread(
-                target=scrape_post_thread,
-                args=(f"./res/pages/{name}.html", note_items),
-            )
-            t.start()
-            threads.append(t)
 
-        for t in threads:
-            t.join()
+            scrape_post_thread(page, note_items[url])
 
-        json.dump(note_items, open('res/output.json', 'w'), indent=4)
+            counter += 1
+
+        json.dump(note_items, open('./res/output.json', 'w'), indent=4)
 
     # Display
     if False:
