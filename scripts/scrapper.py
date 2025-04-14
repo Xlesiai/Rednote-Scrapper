@@ -2,7 +2,8 @@
 import deep_translator
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-from pprint import pprint
+from deep_translator import GoogleTranslator
+import threading
 import json
 import time
 import re
@@ -85,7 +86,8 @@ def scrape_posts(query: str, note_items: dict, scroll_amount=20):
                         'zh': '',
                         'en': '',
                     },
-                    'image': '',
+                    'images': [],
+                    'videos': [],
                 }
 
             # Scrolling
@@ -110,65 +112,64 @@ def scrape_post(url: str, id):
     driver.get(url)
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     with open(f'./res/pages/{id}.html', 'w+', encoding='utf-8') as f:
-        f.write(soup.prettify())
+        f.write(soup.head.prettify())
 
 
-def scrape_post_thread(html: str, note_items: dict):
+def scrape_post_thread(name: str,  url: str, note_items: dict):
+    # HTML
+    soup = BeautifulSoup(
+        open(f'./res/pages/{name}.html', 'r', encoding='utf-8').read(), 'html.parser')
+
+    # Extracting Title
     try:
-        with open(html, 'r', encoding='utf-8') as f:
-            soup = BeautifulSoup(f, 'html.parser')
-    except Exception as e:
-        print(f"Couldn't parse html: {e}")
-
-    # Extracting title
-    try:
-        title = soup.find('div', {'id': 'detail-title'}).text.strip()
+        title = soup.find('meta', {'name': 'og:title'}).get('content')
     except:
-        title = 'Not found'
+        title = 'NULL'
 
-    # Extracting description
+    # Extracting Description
     try:
-        desc = soup.find('div', {'id': 'detail-desc'})
-        desc = desc.find('span', {'class': 'note-text'})
-        desc = desc.find('span').text.strip()
+        desc = soup.find('meta', {'name': 'description'}).get('content')
     except:
-        desc = 'Not found'
+        desc = 'NULL'
 
-    # Extracting image
+    # Extracting Images
+
     try:
-        media_container = soup.find('div', {'class': 'media-container'})
-        img = re.search(
-            r'http(\S+)3',
-            media_container.__str__()
-        )
-        img = img.group(0)
+        imgs = soup.find_all('meta', {'name': 'og:image'})
+        imgs = [img.get('content') for img in imgs]
     except:
-        img = 'Not found'
+        imgs = []
 
-    note_items['title']['zh'] = title
-    note_items['title']['en'] = translate(title)
-    note_items['description']['zh'] = desc
-    note_items['description']['en'] = translate(desc)
-    note_items['image'] = img
+    # Extracting Video
+    try:
+        videos = soup.find_all('meta', {'name': 'og:video'})
+        videos = [video.get('content') for video in videos]
+    except:
+        videos = []
 
-
-def translate(string: str) -> str:
-    # Translating Chinese to English
-    return deep_translator.GoogleTranslator(source='auto', target='en').translate(string)
+    with lock:
+        note_items[url]['title']['zh'] = title
+        note_items[url]['title']['en'] = translator.translate(title)
+        note_items[url]['description']['zh'] = desc
+        note_items[url]['description']['en'] = translator.translate(desc)
+        note_items[url]['images'] = imgs
+        note_items[url]['videos'] = videos
 
 
 # --------Data--------
 global driver
 driver = get_driver(headless=True)
+translator = GoogleTranslator(source='auto', target='en')
+results = {}
+lock = threading.Lock()
 
 if __name__ == "__main__":
-    note_items = json.load(open('res/output.json', 'r'))
+    note_items = json.load(open('res/output.json', 'r', encoding='utf-8'))
     # Scraping main page
     if False:
-        # start_time = time.time()
         scrape_posts('Labubu One Piece Weights', note_items)
-        # print(f"Scraping took {time.time() - start_time} seconds")
-        json.dump(note_items, open('res/output.json', 'w'), indent=4)
+        json.dump(note_items, open('res/output.json',
+                  'w', encoding='utf-8'), indent=4)
 
     # Scraping posts from main page
     if False:
@@ -179,23 +180,24 @@ if __name__ == "__main__":
             print(f"Scraping {name}")
             scrape_post(url, name)
 
-    # Scraping
-    if True:
-        counter = 1
+    # Scraping posts from saved pages
+    if False:
+        threads = []
         for url in note_items:
             print(f"Scraping {counter}/{len(note_items)}", end='\r')
 
             name = url.split('/')[4].split('?')[0]
-            page = f'./res/pages/{name}.html'
-            if not os.path.exists(page):
-                scrape_post(url, name)
-                continue
 
-            scrape_post_thread(page, note_items[url])
+            if os.path.exists(f'./res/pages/{name}.html'):
+                t = threading.Thread(
+                    target=scrape_post_thread, args=(name, url, note_items))
+                threads.append(t)
+                t.start()
 
-            counter += 1
-
-        json.dump(note_items, open('./res/output.json', 'w'), indent=4)
+        for t in threads:
+            t.join()
+        json.dump(note_items, open('res/output.json',
+                  'w', encoding='utf-8'), indent=4)
 
     # Display
     if False:
@@ -204,5 +206,6 @@ if __name__ == "__main__":
             # print(f"\tImage: {note_items[url]['image']}")
             print(f"\tDescription: {note_items[url]['description']['en']}")
             print("-" * 50)
+        # print(len(note_items))
 
     driver.quit()
