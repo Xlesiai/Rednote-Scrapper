@@ -1,8 +1,10 @@
+from collections import defaultdict
 from pprint import pprint
+import numpy as np
 import json
 import sys
-from collections import defaultdict
 import re
+
 sys.stdout.reconfigure(encoding='utf-8')
 
 note_items = json.load(open('./res/output.json', 'r', encoding='utf-8'))
@@ -10,59 +12,118 @@ note_items = json.load(open('./res/output.json', 'r', encoding='utf-8'))
 one_piece = json.load(
     open('./res/jsons/one_piece.json', 'r', encoding='utf-8'))
 
-descriptions = open('./res/txts/descriptions.txt', 'w+', encoding='utf-8')
+descriptions = open('./res/txts/descriptions.txt', 'w', encoding='utf-8')
 
 
 character_names = {
-    "Gear 5 Luffy": ["gear 5", "hidden", "fifth"],
-    "Monkey D. Luffy": ["luffy"],
-    "Roronoa Zoro": ["zoro", "zorro", "roronoa"],
-    "Jinbe": ["jinbe", "jinping"],
-    "Sanji": ["sanji", "shanzhi"],
-    "Tony Tony Chopper": ["chopper", "tony", "choba"],
-    "Franky": ["franky", "franke", "frank"],
-    "Nami": ["nami"],
-    "Nico Robin": ["robin", "nico"],
-    "Usopp": ["usopp", "lie", "cloth"],
-    "Brooke": ["brook", "brooke"],
-    "Trafalgar Law": ["trafalgar", "Trafalgaro"],
-    "Sabo": ["sabo", "sabor", "sabau", "saab"],
+    "Gear 5 Luffy": {"names": ["gear 5", "hidden", "fifth"],
+                     "pattern": {"start": None, "stop": None}},
+    "Monkey D. Luffy": {"names": ["luffy"],
+                        "pattern": {"start": None, "stop": None}},
+    "Roronoa Zoro": {"names": ["zoro", "zorro", "roronoa"],
+                     "pattern": {"start": None, "stop": None}},
+    "Jinbe": {"names": ["jinbe", "jinping", "jinpei"],
+              "pattern": {"start": None, "stop": None}},
+    "Sanji": {"names": ["sanji", "shanzhi", "yanzhi"],
+              "pattern": {"start": None, "stop": None}},
+    "Tony Tony Chopper": {"names": ["chopper", "tony", "choba"],
+                          "pattern": {"start": None, "stop": None}},
+    "Franky": {"names": ["franky", "franke", "frank"],
+               "pattern": {"start": None, "stop": None}},
+    "Nami": {"names": ["nami"],
+             "pattern": {"start": None, "stop": None}},
+    "Nico Robin": {"names": ["robin", "nico"],
+                   "pattern": {"start": None, "stop": None}},
+    "Usopp": {"names": ["usopp", "lie cloth"],
+              "pattern": {"start": None, "stop": None}},
+    "Brooke": {"names": ["brook", "brooke"],
+               "pattern": {"start": None, "stop": None}},
+    "Trafalgar Law": {"names": ["trafalgar", "Trafalgaro"],
+                      "pattern": {"start": None, "stop": None}},
+    "Sabo": {"names": ["sabo", "sabor", "sabau", "saab"],
+             "pattern": {"start": None, "stop": None}},
 }
+# character_names = [k for k in character_names.keys()]
+
+
+def filter_description(text):
+    # Filter out emojis
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F700-\U0001F77F"  # alchemical symbols
+        u"\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
+        u"\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+        u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+        u"\U0001FA00-\U0001FA6F"  # Chess Symbols
+        u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        u"\U00002702-\U000027B0"  # Dingbats
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE
+    )
+    text = emoji_pattern.sub(r' ', text)
+
+    # Filter out hashtags ("#(.+)(?:\n)")
+    hashtag_pattern = re.compile(r"#\w+")
+
+    text = hashtag_pattern.sub(r' ', text)
+    # Filter phrases
+    phrases = [
+        "One Piece", "Labubu", "Blind Box", "Trendy toys", "Popular Mart",
+    ]
+    # Standardize text (lowercase)
+    return text
+
+
+def extract_weight(weights):
+    # Remove values out of range
+    weights = [x for x in weights if x > 70 and x < 140]
+
+    # Calculate Q1 (25th percentile) and Q3 (75th percentile)
+    Q1 = np.percentile(weights, 25)
+    Q3 = np.percentile(weights, 75)
+    IQR = Q3 - Q1
+
+    # Define bounds for outliers
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+
+    # Filter out outliers
+    filtered_data = [x for x in weights if lower_bound <= x <= upper_bound]
+    return np.mean(filtered_data).round(2)
 
 
 def extract_data(text):
     data = {
         "weight": None,
-        "desiccant_sound": False,
-        "shake_up_down": None,
-        "shake_left_right": None,
-        "shake_front_back": None,
-        "has_base_accessory": True,
+        "desiccant sound": False,
+        "shake up down": None,
+        "shake left right": None,
+        "shake front back": None,
         "fullness": None,
-        "other_notes": [],
+        "notes": {},
     }
 
     # Normalize text
     text = text.lower().replace('\n', ' ')
 
     # Weight
-    weight_match = re.search(r'(\d{2,3}\.?\d?)\s*g', text)
-    if weight_match:
-        data["weight"] = float(weight_match.group(1))
+    weight_match = re.findall(r'(\d{2,3}\.?\d?)', text)
+    if len(weight_match) > 0:
+        data["weight"] = extract_weight(
+            [float(w) for w in weight_match])
 
     # Desiccant
     if "desiccant" in text or "particle sound" in text:
-        data["desiccant_sound"] = True
+        data["desiccant sound"] = True
 
     # Shake behaviors
-    data["shake_up_down"] = "can't" if "can't shake up and down" in text else (
+    data["shake up down"] = "can't" if "can't shake up and down" in text else (
         "slightly" if "slightly" in text and "up and down" in text else "can")
-    data["shake_left_right"] = "can't" if "can't feel" in text and "left and right" in text else "can"
-    data["shake_front_back"] = "can't" if "not moving forward and back" in text else "can"
-
-    # Base accessory
-    if "only one without base accessory" in text or "no base" in text:
-        data["has_base_accessory"] = False
+    data["shake left right"] = "can't" if "can't feel" in text and "left and right" in text else "can"
+    data["shake front back"] = "can't" if "not moving forward and back" in text else "can"
 
     # Fullness
     if "very full" in text or "stuffed" in text:
@@ -71,35 +132,56 @@ def extract_data(text):
         data["fullness"] = "slight space"
 
     # Other Notes
-    notes = re.findall(r"⚠️[^⚠️]+", text)
-    data["other_notes"] = [note.strip() for note in notes]
+    notes = re.findall(r"(\w+):(.*?)(?=\s\w+:|$)", text)
+    for note in notes:
+        if note[0] not in data["notes"]:
+            data["notes"][note[0]] = note[1].strip()
+        else:
+            data["notes"][note[0]] += ", " + note[1].strip()
 
     return data
 
 
-def split_by_character(raw_text, character_names):
+def split_by_character(raw_text: str, character_names: dict):
     character_data = defaultdict(list)
-
-    # Sort names by length so we match 'gear 5 luffy' before just 'luffy'
-    sorted_names = sorted(character_names, key=len, reverse=True)
-
-    # Create regex pattern to match character mentions
-    pattern = re.compile("|".join(map(re.escape, sorted_names)), re.IGNORECASE)
-
     current_character = None
     buffer = []
 
-    for line in raw_text.split("\n"):
-        match = pattern.search(line)
-        if match:
-            # Save the previous character block if we had one
-            if current_character and buffer:
-                character_data[current_character].append(
-                    "\n".join(buffer).strip()
-                )
-                buffer = []
+    # Create patterns for each character name
+    for value in character_names.values():
+        # Create regex pattern to match character mentions
+        value['pattern']['start'] = re.compile(
+            '|'.join(map(re.escape, value['names'])), re.IGNORECASE)
 
-            current_character = match.group().lower()
+        others = []
+        for v in character_names.values():
+            if v['names'] != value['names']:
+                others.extend(v['names'])
+
+        value['pattern']['stop'] = re.compile(
+            '|'.join(map(re.escape, others)), re.IGNORECASE)
+
+    # Iterate over each line
+    for line in raw_text.split('\n'):
+        # Check if the line contains any of the character names
+        for name, value in character_names.items():
+            start_pattern: re.Pattern = value['pattern']['start']
+            stop_pattern: re.Pattern = value['pattern']["stop"]
+
+            start = start_pattern.search(line)
+            if start:
+                stop = stop_pattern.search(line)
+                if stop:
+                    line = line[:stop.start()]
+
+                # Save the previous character block if we had one
+                if current_character and buffer:
+                    character_data[current_character].append(
+                        "\n".join(buffer).strip()
+                    )
+                    buffer = []
+
+                current_character = name
 
         if current_character:
             buffer.append(line)
@@ -120,11 +202,11 @@ if __name__ == '__main__':
             json.dump(one_piece, open(
                 './res/jsons/one_piece.json', 'w', encoding='utf-8'))
 
-    if False:
+    if True:
         for url in one_piece:
-            desc = one_piece[url]['description']['en']
-            descriptions.write("---" * 20 + '\n')
-            descriptions.write(desc + '\n')
+            desc = filter_description(one_piece[url]['description']['en'])
+            # descriptions.write("---" * 20 + '\n')
+            descriptions.write(desc.replace('. ', '.\n') + '\n')
 
     if True:
         data = split_by_character(
@@ -134,9 +216,26 @@ if __name__ == '__main__':
 
         characters = {}
         for character, descriptions in data.items():
-            desc = "".join(descriptions)
+            desc = " ".join(descriptions)
             data = extract_data(desc)
             characters[character] = data
 
         json.dump(characters, open(
             f"./res/jsons/characters/characters.json", "w+", encoding="utf-8"), indent=4)
+
+    if True:
+        characters = json.load(open(
+            f"./res/jsons/characters/characters.json", "r", encoding="utf-8"))
+
+        for character, data in characters.items():
+            print('##', character)
+
+            for key, value in data.items():
+                if key == 'notes':
+                    print('### Notes')
+                    for note, value in value.items():
+                        print(f'\t> {note}:', value)
+                    continue
+                else:
+                    print(f'\t### {key}: {value}')
+            print()
